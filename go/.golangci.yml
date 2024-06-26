@@ -1,0 +1,58 @@
+linters-settings:
+  goimports:
+    # Put local imports after 3rd-party packages.
+    local-prefixes: github.com/oasisprotocol/oasis-core
+  gosec:
+    excludes:
+      # https://github.com/securego/gosec#available-rules
+      - G402
+      - G404
+  govet:
+    check-shadowing: true
+    # Enable once suggested fixes are shown: https://github.com/golangci/golangci-lint/issues/2134
+    #enable:
+    #  - fieldalignment
+
+linters:
+  disable-all: true
+  enable:
+    - bodyclose
+    - deadcode
+    - depguard
+    - errcheck
+    - exportloopref
+    - gas
+    - goconst
+    - gocyclo
+    - gofumpt
+    - goimports
+    - goprintffuncname
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    - megacheck
+    - misspell
+    - revive
+    - rowserrcheck
+    - staticcheck
+    - structcheck
+    - typecheck
+    - unconvert
+    - unused
+    - varcheck
+
+run:
+  skip-dirs:
+    # golang-ci-lint requires that files compile for certain linters
+    # to run, and Go plugins do not compile unless `-buildmode=plugin`
+    # is set, which linters do not do.
+    - oasis-test-runner/scenario/pluginsigner/example_signer_plugin
+
+exclude-use-default: false
+
+issues:
+  include:
+    - EXC0014 # un-exclude revive `exported` which warns about incorrect comments on exported items.
+  exclude:
+    - context-as-argument # revive

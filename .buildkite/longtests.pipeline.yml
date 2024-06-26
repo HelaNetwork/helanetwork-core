@@ -1,0 +1,102 @@
+# Copied from pipeline.yml.
+docker_plugin_default_config: &docker_plugin_default_config
+  image: "oasisprotocol/oasis-core-ci:master"
+  always_pull: true
+  workdir: /workdir
+  volumes:
+    - /var/lib/buildkite-agent/.coveralls:/root/.coveralls
+    - /var/lib/buildkite-agent/.codecov:/root/.codecov
+    # Shared Rust incremental compile caches.
+    - /var/tmp/cargo_ic/debug:/var/tmp/artifacts/default/debug/incremental
+    - /var/tmp/cargo_ic/debug_sgx:/var/tmp/artifacts/sgx/x86_64-unknown-linux-sgx/debug/incremental
+    # Shared Rust package checkouts directory.
+    - /var/tmp/cargo_pkg/git:/root/.cargo/git
+    - /var/tmp/cargo_pkg/registry:/root/.cargo/registry
+    # Shared Rust SGX standard library artifacts cache.
+    - /var/tmp/xargo_cache:/root/.xargo
+    # Shared Go package checkouts directory.
+    - /var/tmp/go_pkg:/root/go/pkg
+    # Intel SGX Application Enclave Services Manager (AESM) daemon running on
+    # the Buildkite host.
+    - /var/run/aesmd/aesm.socket:/var/run/aesmd/aesm.socket
+    - /var/tmp/longtests:/var/tmp/longtests
+  environment:
+    - "LC_ALL=C.UTF-8"
+    - "LANG=C.UTF-8"
+    - "CARGO_TARGET_DIR=/var/tmp/artifacts"
+    - "CARGO_INSTALL_ROOT=/root/.cargo"
+    - "CARGO_INCREMENTAL=0"
+    - "GOPROXY=https://proxy.golang.org/"
+    - "SLACK_WEBHOOK_URL"
+    - "METRICS_PUSH_ADDR"
+    - "BUILDKITE_PIPELINE_NAME"
+    - "BUILDKITE_BUILD_NUMBER"
+  propagate-environment: true
+  unconfined: true
+
+docker_plugin: &docker_plugin
+  oasislabs/docker#v3.0.1-oasis1:
+    <<: *docker_plugin_default_config
+
+steps:
+  ############
+  # Build jobs
+  ############
+  - label: Build Go node
+    command:
+      - .buildkite/go/build.sh
+      - .buildkite/go/upload_artifacts.sh
+    plugins:
+      <<: *docker_plugin
+
+  - label: Build Rust runtime loader
+    command:
+      - .buildkite/rust/build_generic.sh /workdir -p oasis-core-runtime-loader
+
+      # Upload the built artifacts.
+      - cd /var/tmp/artifacts/default/debug
+      - buildkite-agent artifact upload oasis-core-runtime-loader
+    plugins:
+      <<: *docker_plugin
+
+  - label: Build key manager runtime
+    command:
+      - .buildkite/rust/build_runtime.sh tests/runtimes/simple-keymanager
+      - .buildkite/rust/build_runtime.sh tests/runtimes/simple-keyvalue
+
+      # Upload the built artifacts.
+      - cd /var/tmp/artifacts/sgx/x86_64-fortanix-unknown-sgx/debug
+      - buildkite-agent artifact upload simple-keymanager.sgxs
+      - buildkite-agent artifact upload simple-keyvalue.sgxs
+      - buildkite-agent artifact upload simple-keyvalue-upgrade.sgxs
+      - buildkite-agent artifact upload simple-keymanager-upgrade.sgxs
+      - cd /var/tmp/artifacts/default/debug
+      - buildkite-agent artifact upload simple-keymanager
+      - buildkite-agent artifact upload simple-keyvalue
+      - buildkite-agent artifact upload simple-keyvalue-upgrade
+      - buildkite-agent artifact upload simple-keymanager-upgrade
+    plugins:
+      <<: *docker_plugin
+
+  - wait
+
+  - label: Transaction source tests
+    # Tests are set to run 12 hours + some buffer time.
+    timeout_in_minutes: 900
+    command:
+      - .buildkite/scripts/download_e2e_test_artifacts.sh
+      - .buildkite/scripts/daily_txsource.sh --e2e/runtime.epoch.interval=${epochtime_inverval}
+    env:
+      TEST_BASE_DIR: /var/tmp/longtests
+    agents:
+      daily: true
+    # NOTE: we actually don't want to retry, but this is the only way that we
+    # can execute the notify step only if tests failed.
+    retry:
+      automatic:
+        limit: 1
+      manual:
+        allowed: false
+        reason: "Create a new build to retry"
+    plugins:
+      <<: *docker_plugin

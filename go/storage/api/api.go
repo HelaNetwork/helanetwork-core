@@ -1,0 +1,265 @@
+// Package api implements the storage backend API.
+package api
+
+import (
+	"context"
+
+	"github.com/oasisprotocol/oasis-core/go/common"
+	"github.com/oasisprotocol/oasis-core/go/common/crypto/hash"
+	"github.com/oasisprotocol/oasis-core/go/common/errors"
+	"github.com/oasisprotocol/oasis-core/go/common/node"
+	"github.com/oasisprotocol/oasis-core/go/storage/mkvs/checkpoint"
+	nodedb "github.com/oasisprotocol/oasis-core/go/storage/mkvs/db/api"
+	mkvsNode "github.com/oasisprotocol/oasis-core/go/storage/mkvs/node"
+	"github.com/oasisprotocol/oasis-core/go/storage/mkvs/syncer"
+	"github.com/oasisprotocol/oasis-core/go/storage/mkvs/writelog"
+)
+
+const (
+	// ModuleName is the storage module name.
+	ModuleName = "storage"
+
+	// WriteLogIteratorChunkSize defines the chunk size of write log entries
+	// for the GetDiff method.
+	WriteLogIteratorChunkSize = 10
+)
+
+var (
+	// ErrCantProve is the error returned when the backend is incapable
+	// of generating proofs (unsupported, no key, etc).
+	ErrCantProve = errors.New(ModuleName, 1, "storage: unable to provide proofs")
+	// ErrNoRoots is the error returned when the generated receipt would
+	// not contain any roots.
+	ErrNoRoots = errors.New(ModuleName, 2, "storage: no roots to generate receipt for")
+	// ErrExpectedRootMismatch is the error returned when the expected root
+	// does not match the computed root.
+	ErrExpectedRootMismatch = errors.New(ModuleName, 3, "storage: expected root mismatch")
+	// ErrUnsupported is the error returned when the called method is not
+	// supported by the given backend.
+	ErrUnsupported = errors.New(ModuleName, 4, "storage: method not supported by backend")
+	// ErrLimitReached means that a configured limit has been reached.
+	ErrLimitReached = errors.New(ModuleName, 5, "storage: limit reached")
+
+	// The following errors are reimports from NodeDB.
+
+	// ErrNodeNotFound indicates that a node with the specified hash couldn't be found
+	// in the database.
+	ErrNodeNotFound = nodedb.ErrNodeNotFound
+	// ErrWriteLogNotFound indicates that a write log for the specified storage hashes
+	// couldn't be found.
+	ErrWriteLogNotFound = nodedb.ErrWriteLogNotFound
+	// ErrNotFinalized indicates that the operation requires a version to be finalized
+	// but the version is not yet finalized.
+	ErrNotFinalized = nodedb.ErrNotFinalized
+	// ErrAlreadyFinalized indicates that the given version has already been finalized.
+	ErrAlreadyFinalized = nodedb.ErrAlreadyFinalized
+	// ErrVersionNotFound indicates that the given version cannot be found.
+	ErrVersionNotFound = nodedb.ErrVersionNotFound
+	// ErrPreviousVersionMismatch indicates that the version given for the old root does
+	// not match the previous version.
+	ErrPreviousVersionMismatch = nodedb.ErrPreviousVersionMismatch
+	// ErrVersionWentBackwards indicates that the new version is earlier than an already
+	// inserted version.
+	ErrVersionWentBackwards = nodedb.ErrVersionWentBackwards
+	// ErrRootNotFound indicates that the given root cannot be found.
+	ErrRootNotFound = nodedb.ErrRootNotFound
+	// ErrRootMustFollowOld indicates that the passed new root does not follow old root.
+	ErrRootMustFollowOld = nodedb.ErrRootMustFollowOld
+	// ErrReadOnly indicates that the storage backend is read-only.
+	ErrReadOnly = nodedb.ErrReadOnly
+)
+
+// Config is the storage backend configuration.
+type Config struct { // nolint: maligned
+	// Backend is the database backend.
+	Backend string
+
+	// DB is the path to the database.
+	DB string
+
+	// Namespace is the namespace contained within the database.
+	Namespace common.Namespace
+
+	// MaxCacheSize is the maximum in-memory cache size for the database.
+	MaxCacheSize int64
+
+	// DiscardWriteLogs will cause all write logs to be discarded.
+	DiscardWriteLogs bool
+
+	// NoFsync will disable fsync() where possible.
+	NoFsync bool
+
+	// MemoryOnly will make the storage memory-only (if the backend supports it).
+	MemoryOnly bool
+
+	// ReadOnly will make the storage read-only.
+	ReadOnly bool
+}
+
+// ToNodeDB converts from a Config to a node DB Config.
+func (cfg *Config) ToNodeDB() *nodedb.Config {
+	return &nodedb.Config{
+		DB:               cfg.DB,
+		Namespace:        cfg.Namespace,
+		MaxCacheSize:     cfg.MaxCacheSize,
+		NoFsync:          cfg.NoFsync,
+		MemoryOnly:       cfg.MemoryOnly,
+		ReadOnly:         cfg.ReadOnly,
+		DiscardWriteLogs: cfg.DiscardWriteLogs,
+	}
+}
+
+// WriteLog is a write log.
+//
+// The keys in the write log must be unique.
+type WriteLog = writelog.WriteLog
+
+// LogEntry is a write log entry.
+type LogEntry = writelog.LogEntry
+
+// WriteLogIterator iterates over write log entries.
+type WriteLogIterator = writelog.Iterator
+
+// RootType is a storage root type.
+type RootType = mkvsNode.RootType
+
+const (
+	// RootTypeInvalid is an invalid/uninitialized root type.
+	RootTypeInvalid = mkvsNode.RootTypeInvalid
+	// RootTypeState is the type for state storage roots.
+	RootTypeState = mkvsNode.RootTypeState
+	// RootTypeIO is the type for IO storage roots.
+	RootTypeIO = mkvsNode.RootTypeIO
+	// RootTypeMax is the number of different root types.
+	RootTypeMax = mkvsNode.RootTypeMax
+)
+
+// Root is a storage root.
+type Root = mkvsNode.Root
+
+// Key is a node's key spelled out from the root to the node.
+type Key = mkvsNode.Key
+
+// Depth determines the node's (bit) depth in the tree. It is also used for
+// storing the Key length in bits.
+type Depth = mkvsNode.Depth
+
+// Node is either an InternalNode or a LeafNode.
+type Node = mkvsNode.Node
+
+// Pointer is a pointer to another node.
+type Pointer = mkvsNode.Pointer
+
+// InternalNode is an internal node with two children.
+type InternalNode = mkvsNode.InternalNode
+
+// LeafNode is a leaf node containing a key/value pair.
+type LeafNode = mkvsNode.LeafNode
+
+// TreeID identifies a specific tree and a position within that tree.
+type TreeID = syncer.TreeID
+
+// GetRequest is a request for the SyncGet operation.
+type GetRequest = syncer.GetRequest
+
+// GetPrefixesRequest is a request for the SyncGetPrefixes operation.
+type GetPrefixesRequest = syncer.GetPrefixesRequest
+
+// IterateRequest is a request for the SyncIterate operation.
+type IterateRequest = syncer.IterateRequest
+
+// ProofResponse is a response for requests that produce proofs.
+type ProofResponse = syncer.ProofResponse
+
+// Proof is a Merkle proof for a subtree.
+type Proof = syncer.Proof
+
+// NodeDB is a node database.
+type NodeDB = nodedb.NodeDB
+
+// ApplyRequest is an Apply request.
+type ApplyRequest struct {
+	Namespace common.Namespace `json:"namespace"`
+	RootType  RootType         `json:"root_type"`
+	SrcRound  uint64           `json:"src_round"`
+	SrcRoot   hash.Hash        `json:"src_root"`
+	DstRound  uint64           `json:"dst_round"`
+	DstRoot   hash.Hash        `json:"dst_root"`
+	WriteLog  WriteLog         `json:"writelog"`
+}
+
+// SyncOptions are the sync options.
+type SyncOptions struct {
+	OffsetKey []byte `json:"offset_key"`
+	Limit     uint64 `json:"limit"`
+}
+
+// SyncChunk is a chunk of write log entries sent during GetDiff operation.
+type SyncChunk struct {
+	Final    bool     `json:"final"`
+	WriteLog WriteLog `json:"writelog"`
+}
+
+// GetDiffRequest is a GetDiff request.
+type GetDiffRequest struct {
+	StartRoot Root        `json:"start_root"`
+	EndRoot   Root        `json:"end_root"`
+	Options   SyncOptions `json:"options"`
+}
+
+// Backend is a storage backend implementation.
+type Backend interface {
+	syncer.ReadSyncer
+	checkpoint.ChunkProvider
+
+	// GetDiff returns an iterator of write log entries that must be applied
+	// to get from the first given root to the second one.
+	GetDiff(ctx context.Context, request *GetDiffRequest) (WriteLogIterator, error)
+
+	// Cleanup closes/cleans up the storage backend.
+	Cleanup()
+
+	// Initialized returns a channel that will be closed when the
+	// backend is initialized and ready to service requests.
+	Initialized() <-chan struct{}
+}
+
+// LocalBackend is a storage implementation with a local backing store.
+type LocalBackend interface {
+	Backend
+
+	// Apply applies a set of operations against the MKVS.  The root may refer
+	// to a nil node, in which case a new root will be created.
+	// The expected new root is used to check if the new root after all the
+	// operations are applied already exists in the local DB.  If it does, the
+	// Apply is ignored.
+	Apply(ctx context.Context, request *ApplyRequest) error
+
+	// Checkpointer returns the checkpoint creator/restorer for this storage backend.
+	Checkpointer() checkpoint.CreateRestorer
+
+	// NodeDB returns the underlying node database.
+	NodeDB() nodedb.NodeDB
+}
+
+// WrappedLocalBackend is an interface implemented by storage backends that wrap a local storage
+// backend in order to support unwrapping.
+type WrappedLocalBackend interface {
+	// Unwrap returns the underlying local storage backend.
+	Unwrap() LocalBackend
+}
+
+// ClientBackend is a storage client backend implementation.
+type ClientBackend interface {
+	Backend
+
+	// GetConnectedNodes returns currently connected storage nodes.
+	GetConnectedNodes() []*node.Node
+
+	// EnsureCommitteeVersion waits for the storage committee client to be fully
+	// synced to the given version.
+	//
+	// This method will error in case the storage-client is not configured to
+	// track a specific committee.
+	EnsureCommitteeVersion(ctx context.Context, version int64) error
+}

@@ -1,0 +1,17 @@
+[package]
+name = "oasis-core-tools"
+version = "0.0.0"
+authors = ["Oasis Protocol Foundation <info@oasisprotocol.org>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0.137", features = ["derive"] }
+toml = "0.5.9"
+clap = "4.0.10"
+ansi_term = "0.12.1"
+
+[[bin]]
+name = "cargo-elf2sgxs"
+path = "bin/cargo-elf2sgxs.rs"

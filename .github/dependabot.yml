@@ -1,0 +1,45 @@
+version: 2
+updates:
+
+  # Manage Github Actions versions.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+      # Check for updates at 7am UTC.
+      time: "07:00"
+    commit-message:
+      prefix: "ci:"
+    labels:
+      - c:deps
+      - c:testing
+
+  # Manage Go pacakge versions.
+  - package-ecosystem: gomod
+    directory: go/
+    schedule:
+      interval: daily
+      # Check for updates at 7am UTC.
+      time: "07:00"
+    commit-message:
+      prefix: "go:"
+    labels:
+      - c:deps
+      - golang
+    ignore:
+      # Tendermint is manualy kept up to date.
+      - dependency-name: github.com/tendermint/tendermint
+      - dependency-name: github.com/tendermint/tm-db
+
+  # Manage Rust pacakge versions.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: daily
+      # Check for updates at 7am UTC.
+      time: "07:00"
+    commit-message:
+      prefix: "rust:"
+    labels:
+      - c:deps
+      - rust

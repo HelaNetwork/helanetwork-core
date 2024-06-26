@@ -1,0 +1,10 @@
+version: "2"
+
+services:
+  hela-core:
+    build:
+      dockerfile: docker/oasis-core-dev/Dockerfile
+      context: .
+    command:
+      - make
+      - test-unit-go

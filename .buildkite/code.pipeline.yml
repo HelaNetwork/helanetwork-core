@@ -1,0 +1,377 @@
+##
+# Code pipeline
+##
+#
+# Main Buildkite pipeline for running code-related linters and tests.
+#
+
+docker_plugin_default_config: &docker_plugin_default_config
+  image: "oasisprotocol/oasis-core-ci:${DOCKER_OASIS_CORE_CI_BASE_TAG}"
+  always_pull: true
+  workdir: /workdir
+  volumes:
+    - /var/lib/buildkite-agent/.coveralls:/root/.coveralls
+    - /var/lib/buildkite-agent/.codecov:/root/.codecov
+    # IAS Development API keys.
+    - /var/lib/buildkite-agent/.oasis-ias:/root/.oasis-ias
+    # Shared Rust incremental compile caches.
+    - /var/tmp/cargo_ic/debug:/var/tmp/artifacts/default/debug/incremental
+    - /var/tmp/cargo_ic/debug_sgx:/var/tmp/artifacts/sgx/x86_64-unknown-linux-sgx/debug/incremental
+    # Shared Rust package checkouts directory.
+    - /var/tmp/cargo_pkg/git:/root/.cargo/git
+    - /var/tmp/cargo_pkg/registry:/root/.cargo/registry
+    # Shared Rust SGX standard library artifacts cache.
+    - /var/tmp/xargo_cache:/root/.xargo
+    # Shared Go package checkouts directory.
+    - /var/tmp/go_pkg:/root/go/pkg
+    # Intel SGX Application Enclave Services Manager (AESM) daemon running on
+    # the Buildkite host.
+    - /var/run/aesmd/aesm.socket:/var/run/aesmd/aesm.socket
+    # Propapage the tmpfs mount.
+    - /tmp:/tmp
+    # NOTE: When changing the environment variables below, also copy the changes
+  # to the docker_plugin_sgx_config.
+  environment:
+    - "LC_ALL=C.UTF-8"
+    - "LANG=C.UTF-8"
+    - "CARGO_TARGET_DIR=/var/tmp/artifacts"
+    - "CARGO_INSTALL_ROOT=/root/.cargo"
+    - "CARGO_INCREMENTAL=0"
+    - "GOPROXY=https://proxy.golang.org/"
+  propagate-environment: true
+  unconfined: true
+
+docker_plugin_sgx_config: &docker_plugin_sgx_config
+  <<: *docker_plugin_default_config
+  devices:
+    # Intel SGX device.
+    - /dev/isgx
+  environment:
+    - "OASIS_TEE_HARDWARE=intel-sgx"
+    # Copy of environment variables defined in docker_plugin_default_config.
+    - "LC_ALL=C.UTF-8"
+    - "LANG=C.UTF-8"
+    - "CARGO_TARGET_DIR=/var/tmp/artifacts"
+    - "CARGO_INSTALL_ROOT=/root/.cargo"
+    - "CARGO_INCREMENTAL=0"
+    - "GOPROXY=https://proxy.golang.org/"
+
+docker_plugin: &docker_plugin
+  oasislabs/docker#v3.0.1-oasis1:
+    <<: *docker_plugin_default_config
+
+docker_plugin_sgx: &docker_plugin_sgx
+  oasislabs/docker#v3.0.1-oasis1:
+    <<: *docker_plugin_sgx_config
+
+retry: &retry_agent_failure
+  automatic:
+    # Buildkite lost contact with the agent or it stopped reporting.
+    - exit_status: -1
+      limit: 2
+    # ERRO[0092] error waiting for container: unexpected EOF.
+    - exit_status: 125
+      limit: 2
+
+steps:
+  # Require explicit confirmation for some PRs to avoid CI spam.
+  - block: Confirm CI run
+    prompt: Run CI for this pull request?
+    blocked_state: running
+    if: |
+      build.pull_request.id != null &&
+      !(build.pull_request.labels includes "s:ready-ci") &&
+      (
+        build.pull_request.draft ||
+        !(build.creator.teams includes "everyone")
+      )
+
+  ###########
+  # Lint jobs
+  ###########
+  - label: Lint Go node
+    command:
+      - .buildkite/go/lint.sh
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  - label: Audit Rust dependencies for vulnerabilities
+    command: .buildkite/rust/cargo_audit.sh
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  - label: Audit Go dependencies for vulnerabilities
+    command: .buildkite/go/nancy_audit.sh
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  ############
+  # Build jobs
+  ############
+  - label: Build Go node
+    key: build-go
+    command:
+      - .buildkite/go/build.sh
+      - .buildkite/go/upload_artifacts.sh
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  - label: Build Rust runtime loader
+    key: build-rust-runtime-loader
+    command:
+      - .buildkite/rust/build_generic.sh /workdir -p oasis-core-runtime-loader
+
+      # Upload the built artifacts.
+      - cd /var/tmp/artifacts/default/debug
+      - buildkite-agent artifact upload oasis-core-runtime-loader
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  ####################
+  # Runtime build jobs
+  ####################
+  - label: Build runtimes
+    key: build-rust-runtimes
+    command:
+      - .buildkite/rust/build_runtime.sh tests/runtimes/simple-keymanager
+      - .buildkite/rust/build_runtime.sh tests/runtimes/simple-keyvalue
+
+      # Upload the built artifacts.
+      - cd /var/tmp/artifacts/sgx/x86_64-fortanix-unknown-sgx/debug
+      - buildkite-agent artifact upload simple-keymanager.sgxs
+      - buildkite-agent artifact upload simple-keyvalue.sgxs
+      - buildkite-agent artifact upload simple-keyvalue-upgrade.sgxs
+      - buildkite-agent artifact upload simple-keymanager-upgrade.sgxs
+      - cd /var/tmp/artifacts/default/debug
+      - buildkite-agent artifact upload simple-keymanager
+      - buildkite-agent artifact upload simple-keyvalue
+      - buildkite-agent artifact upload simple-keyvalue-upgrade
+      - buildkite-agent artifact upload simple-keymanager-upgrade
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  ###########
+  # Test jobs
+  ###########
+  - label: Test Rust crates
+    command:
+      # Build storage interoperability test helpers first.
+      - make build-helpers
+      - export OASIS_STORAGE_PROTOCOL_SERVER_BINARY=$(realpath go/storage/mkvs/interop/mkvs-test-helpers)
+      - .buildkite/rust/test_generic.sh .
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  #####################################
+  # Test jobs requiring build artifacts
+  #####################################
+  - label: Test Go node
+    depends_on:
+      - "build-rust-runtimes"
+    command:
+      - .buildkite/go/test_and_coverage.sh
+    artifact_paths:
+      - coverage-*.txt
+      - /tmp/oasis-node-test_*/test-node.log
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  ###############
+  # E2E test jobs
+  ###############
+  - label: E2E tests
+    depends_on:
+      - "build-go"
+      - "build-rust-runtime-loader"
+      - "build-rust-runtimes"
+    parallelism: 30
+    timeout_in_minutes: 15
+    command:
+      - .buildkite/scripts/download_e2e_test_artifacts.sh
+      - .buildkite/scripts/test_e2e.sh
+    artifact_paths:
+      - coverage-merged-e2e-*.txt
+      - /tmp/e2e/**/*.log
+      - /tmp/e2e/**/genesis.json
+      - /tmp/e2e/**/runtime_genesis.json
+    env:
+      OASIS_E2E_COVERAGE: enable
+      # Since the trust-root scenarios are tested in SGX mode (for which they are actually relevant)
+      # no need to also test them in non-SGX mode in CI. Also exclude txsource-multi-short so that
+      # we ensure it runs only on non-SGX agents.
+      OASIS_EXCLUDE_E2E: e2e/runtime/trust-root/simple,e2e/runtime/trust-root/change,e2e/runtime/trust-root/change-fails,e2e/runtime/txsource-multi-short
+      TEST_BASE_DIR: /tmp
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  - label: E2E tests (txsource-multi-short)
+    depends_on:
+      - "build-go"
+      - "build-rust-runtime-loader"
+      - "build-rust-runtimes"
+    timeout_in_minutes: 15
+    command:
+      - .buildkite/scripts/download_e2e_test_artifacts.sh
+      - .buildkite/scripts/test_e2e.sh --scenario e2e/runtime/txsource-multi-short
+    artifact_paths:
+      - coverage-merged-e2e-*.txt
+      - /tmp/e2e/**/*.log
+      - /tmp/e2e/**/genesis.json
+      - /tmp/e2e/**/runtime_genesis.json
+    env:
+      OASIS_E2E_COVERAGE: enable
+      TEST_BASE_DIR: /tmp
+    agents:
+      buildkite_agent_class: ephemeral # XXX: Use a dedicated tag instead.
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  ###########################
+  # E2E test jobs - intel-sgx
+  ###########################
+  - label: E2E tests - intel-sgx (basic)
+    depends_on:
+      - "build-go"
+      - "build-rust-runtime-loader"
+      - "build-rust-runtimes"
+    branches: "!master !stable/*"
+    parallelism: 2
+    timeout_in_minutes: 20
+    command:
+      - .buildkite/scripts/download_e2e_test_artifacts.sh
+      # Needed as the trust-root test rebuilds the enclave with embedded trust root data.
+      - cargo install --locked --path tools
+      - export CFLAGS_x86_64_fortanix_unknown_sgx="-isystem/usr/include/x86_64-linux-gnu -mlvi-hardening -mllvm -x86-experimental-lvi-inline-asm-hardening"
+      - export CC_x86_64_fortanix_unknown_sgx=clang-11
+      # Only run runtime scenarios as others do not use SGX.
+      - .buildkite/scripts/test_e2e.sh --scenario e2e/runtime/runtime-encryption --scenario e2e/runtime/trust-root/.+ --scenario e2e/runtime/keymanager-key-generation
+    artifact_paths:
+      - coverage-merged-e2e-*.txt
+      - /tmp/e2e/**/*.log
+      - /tmp/e2e/**/genesis.json
+      - /tmp/e2e/**/runtime_genesis.json
+    env:
+      # Unsafe flags needed as the trust-root test rebuilds the enclave with embedded trust root data.
+      OASIS_UNSAFE_SKIP_AVR_VERIFY: "1"
+      OASIS_UNSAFE_ALLOW_DEBUG_ENCLAVES: "1"
+      OASIS_E2E_COVERAGE: enable
+      TEST_BASE_DIR: /tmp
+    agents:
+      queue: intel-sgx
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin_sgx
+
+  - label: E2E tests - intel-sgx (full)
+    depends_on:
+      - "build-go"
+      - "build-rust-runtime-loader"
+      - "build-rust-runtimes"
+    branches: master stable/*
+    parallelism: 20
+    timeout_in_minutes: 20
+    command:
+      - .buildkite/scripts/download_e2e_test_artifacts.sh
+      # Needed as the trust-root test rebuilds the enclave with embedded trust root data.
+      - cargo install --locked --path tools
+      # Only run runtime scenarios as others do not use SGX.
+      - .buildkite/scripts/test_e2e.sh --scenario e2e/runtime/.*
+    artifact_paths:
+      - coverage-merged-e2e-*.txt
+      - /tmp/e2e/**/*.log
+    env:
+      # Unsafe flags needed as the trust-root test rebuilds the enclave with embedded trust root data.
+      OASIS_UNSAFE_SKIP_AVR_VERIFY: "1"
+      OASIS_UNSAFE_ALLOW_DEBUG_ENCLAVES: "1"
+      OASIS_E2E_COVERAGE: enable
+      OASIS_EXCLUDE_E2E: e2e/runtime/txsource-multi,e2e/runtime/txsource-multi-short
+      TEST_BASE_DIR: /tmp
+    agents:
+      queue: intel-sgx
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin_sgx
+
+  ################################################
+  # E2E test - intel-sgx with IAS (only on master)
+  ################################################
+  - label: E2E tests - intel-sgx - IAS
+    branches: master stable/*
+    timeout_in_minutes: 15
+    command:
+      - .buildkite/scripts/sgx_ias_tests.sh
+    # A unique string to identify the step. The value is available in the
+    # BUILDKITE_STEP_KEY and is used to ensure the generated coverage file
+    # names are unique across this pipeline.
+    key: sgx-ias
+    artifact_paths:
+      - coverage-merged-e2e-*.txt
+      - /tmp/e2e/**/*.log
+    env:
+      OASIS_E2E_COVERAGE: enable
+      TEST_BASE_DIR: /tmp
+    agents:
+      queue: intel-sgx
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin_sgx
+
+  ####################################
+  # Rust coverage job.
+  ####################################
+
+  - label: Coverage Rust crates
+    command:
+      # Build storage interoperability test helpers first.
+      - make build-helpers
+      - export OASIS_STORAGE_PROTOCOL_SERVER_BINARY=$(realpath go/storage/mkvs/interop/mkvs-test-helpers)
+      - .buildkite/rust/coverage.sh
+    # Don't cause the build to fail, as tarpaulin is pretty unstable at the moment.
+    soft_fail: true
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin
+
+  # Wait for all jobs defined before this point
+  # to finish running in parallel before continuing.
+  - wait
+
+  ###########################
+  # Merge coverage and upload
+  ###########################
+
+  - label: "Merge and upload coverage"
+    command:
+      - .buildkite/scripts/merge_coverage.sh
+      - .buildkite/scripts/upload_coverage.sh
+    artifact_paths:
+      - merged-coverage.txt
+    soft_fail: true
+    retry:
+      <<: *retry_agent_failure
+    plugins:
+      <<: *docker_plugin

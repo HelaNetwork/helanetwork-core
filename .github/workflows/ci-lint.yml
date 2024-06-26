@@ -1,0 +1,109 @@
+# NOTE: This name appears in GitHub's Checks API and in workflow's status badge.
+name: ci-lint
+
+# Trigger the workflow when:
+on:
+  # A push occurs to one of the matched branches.
+  push:
+    branches:
+      - master
+      - stable/*
+  # Or when a pull request event occurs for a pull request against one of the
+  # matched branches.
+  pull_request:
+    branches:
+      - master
+      - stable/*
+
+# Cancel in progress jobs on new pushes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    # NOTE: This name appears in GitHub's Checks API.
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          # Check out pull request's HEAD commit instead of the merge commit to
+          # prevent gitlint from failing due to too long commit message titles,
+          # e.g. "Merge 3e621938d65caaa67f8e35d145335d889d470fc8 into 19a39b2f66cd7a165082d1486b2f1eb36ec2354a".
+          ref: ${{ github.event.pull_request.head.sha }}
+          # Fetch all history so gitlint can check the relevant commits.
+          fetch-depth: '0'
+      - name: Set up Python 3
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Set up Node.js 12
+        uses: actions/setup-node@v3
+        with:
+          node-version: "12.x"
+      - name: Set up Go 1.18
+        uses: actions/setup-go@v3
+        with:
+          go-version: "1.18.x"
+      - name: Set up Rust
+        run: rustup show
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install make libseccomp-dev protobuf-compiler
+      - name: Install gitlint
+        run: |
+          python -m pip install gitlint
+      - name: Install towncrier
+        run: |
+          python -m pip install https://github.com/oasisprotocol/towncrier/archive/oasis-master.tar.gz
+      - name: Check for presence of a Change Log fragment (only pull requests)
+        # NOTE: The pull request' base branch needs to be fetched so towncrier
+        # is able to compare the current branch with the base branch.
+        # Source: https://github.com/actions/checkout/#fetch-all-branches.
+        run: |
+          git fetch --no-tags origin +refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}
+          towncrier check --compare-with origin/${BASE_BRANCH}
+        env:
+          BASE_BRANCH: ${{ github.base_ref }}
+        if: |
+          github.event_name == 'pull_request' &&
+          github.actor != 'dependabot[bot]'
+      - name: Lint git commits
+        run: |
+          make lint-git
+        # Always run this step so that all linting errors can be seen at once.
+        if: always() && github.actor != 'dependabot[bot]'
+      - name: Lint Markdown files
+        run: |
+          make lint-md
+        # Always run this step so that all linting errors can be seen at once.
+        if: always()
+      - name: Lint Change Log fragments
+        run: |
+          make lint-changelog
+        # Always run this step so that all linting errors can be seen at once.
+        if: always()
+      - name: Check documentation synchronized with source code
+        run: |
+          pushd go/extra/extract-metrics && go build && popd
+          make lint-docs
+        # Always run this step so that all linting errors can be seen at once.
+        if: always()
+      - name: Ensure a clean code checkout
+        uses: actions/checkout@v3
+        with:
+          clean: true
+        if: always()
+      - name: Check go mod tidy
+        run: |
+          make lint-go-mod-tidy
+        # Always run this step so that all linting errors can be seen at once.
+        if: always()
+      - name: Lint rust
+        run: |
+          make lint-rust
+        # Always run this step so that all linting errors can be seen at once.
+        if: always()

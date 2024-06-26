@@ -1,0 +1,28 @@
+# Build.
+target/
+**/*.rs.bk
+*.a
+*.o
+*.so
+**/generated
+/dist/
+/__pycache__/
+hfuzz_target
+hfuzz_workspace
+.gitlint-rules/__pycache__/
+
+# IDE.
+.idea/*
+
+# Temporary files.
+*.swp
+
+# Development-linked Workspaces.
+/thirdparty/
+
+# Required for goreleaser to properly generate an archive.
+/oasis-core-runtime-loader
+
+# Coverage files.
+coverage-e2e-*.txt
+

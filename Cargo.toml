@@ -1,0 +1,15 @@
+[workspace]
+members = [
+    "runtime",
+    "runtime-loader",
+    "keymanager",
+    "tools",
+
+    # Test runtimes.
+    "tests/runtimes/simple-keyvalue",
+    "tests/runtimes/simple-keymanager",
+]
+resolver = "2"
+
+[profile.release]
+panic = "abort"

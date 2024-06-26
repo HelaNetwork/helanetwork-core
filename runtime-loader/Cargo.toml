@@ -1,0 +1,21 @@
+[package]
+name = "oasis-core-runtime-loader"
+version = "0.0.0"
+authors = ["Oasis Protocol Foundation <info@oasisprotocol.org>"]
+edition = "2018"
+
+[dependencies]
+clap = "4.0.10"
+anyhow = "1.0"
+futures = { version = "0.3.17", features = ["compat", "io-compat"] }
+# NOTE: The version of tokio is constrained by what the upstream enclave-runner is using.
+tokio = { version = "0.2", features = ["full"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+aesm-client = { version = "0.5.4", features = ["sgxs"] }
+enclave-runner = { version = "0.5.1" }
+sgxs-loaders = { version = "0.3.3" }
+
+[[bin]]
+name = "oasis-core-runtime-loader"
+path = "bin/main.rs"
