@@ -831,7 +831,7 @@ dependencies = [
  "byteorder",
  "failure",
  "lazy_static",
- "mbedtls",
+ "mbedtls 0.8.4",
  "num",
  "num-derive 0.2.5",
  "num-traits",
@@ -1348,7 +1348,7 @@ dependencies = [
  "arbitrary",
  "lazy_static",
  "memmap2",
- "rustc_version",
+ "rustc_version 0.4.0",
 ]
 
 [[package]]
@@ -1627,20 +1627,50 @@ checksum = "60302e4db3a61da70c0cb7991976248362f30319e88850c487b9b95bbf059e00"
 
 [[package]]
 name = "mbedtls"
-version = "0.8.1"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6720f243c44d3cc5fd557c96c2538ec184fa0de28651002211b5a196e251b87f"
+checksum = "70bd8527c25d8261f418a6538e8bd2262276eaa6c60c798c91a111e1e080d921"
 dependencies = [
  "bitflags",
  "byteorder",
  "cc",
  "cfg-if 1.0.0",
- "chrono",
+ "mbedtls-platform-support",
+ "mbedtls-sys-auto",
+ "rs-libc",
+ "rustc_version 0.2.3",
+ "serde",
+ "serde_derive",
+]
+
+[[package]]
+name = "mbedtls"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8730cf71e8d79ba70b3b7986af7af7629c0c4ee58b59e4a2e30d855cc31552e8"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "cc",
+ "cfg-if 1.0.0",
+ "mbedtls-platform-support",
  "mbedtls-sys-auto",
  "rs-libc",
  "serde",
  "serde_derive",
  "yasna 0.2.2",
+]
+
+[[package]]
+name = "mbedtls-platform-support"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be354d52c70402fbfb37bad9ae2aa99ab52af79f37423cb9d6c41c8fb863abc7"
+dependencies = [
+ "cc",
+ "cfg-if 1.0.0",
+ "chrono",
+ "mbedtls-sys-auto",
 ]
 
 [[package]]
@@ -2059,7 +2089,7 @@ dependencies = [
  "lazy_static",
  "log",
  "lru",
- "mbedtls",
+ "mbedtls 0.12.3",
  "num-bigint 0.4.3",
  "num-traits",
  "oasis-cbor",
@@ -2652,11 +2682,20 @@ checksum = "3e75f6a532d0fd9f7f13144f392b6ad56a32696bfcd9c78f797f16bbb6f072d6"
 
 [[package]]
 name = "rustc_version"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
+dependencies = [
+ "semver 0.9.0",
+]
+
+[[package]]
+name = "rustc_version"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
 dependencies = [
- "semver",
+ "semver 1.0.16",
 ]
 
 [[package]]
@@ -2711,9 +2750,24 @@ checksum = "ddccb15bcce173023b3fedd9436f882a0739b8dfb45e4f6b6002bee5929f61b2"
 
 [[package]]
 name = "semver"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
+dependencies = [
+ "semver-parser",
+]
+
+[[package]]
+name = "semver"
 version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58bc9567378fc7690d6b2addae4e60ac2eeea07becb2c64b9f218b53865cba2a"
+
+[[package]]
+name = "semver-parser"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "serde"
@@ -2960,7 +3014,7 @@ dependencies = [
  "chacha20poly1305",
  "curve25519-dalek 4.0.0-pre.5",
  "rand_core 0.6.4",
- "rustc_version",
+ "rustc_version 0.4.0",
  "sha2 0.10.6",
  "subtle",
 ]
