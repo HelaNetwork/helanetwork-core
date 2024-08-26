@@ -40,7 +40,7 @@ tendermint-rpc = { version = "0.25.0", default-features = false }
 io-context = "0.2.0"
 curve25519-dalek = "3.2.0"
 x25519-dalek = "1.1.0"
-ed25519-dalek = "1.0.1"
+ed25519-dalek = "2.1.1"
 deoxysii = "0.2.4"
 tiny-keccak = { version = "2.0.2", features = ["sha3", "tuple_hash"] }
 sp800-185 = "0.2.0"
