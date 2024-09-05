@@ -126,11 +126,9 @@ impl Signature {
         // TODO/perf:
         //  * PublicKey could just be an EdwardsPoint.
         //  * Could cache the results of is_small_order() in PublicKey.
-        let A = CompressedEdwardsY::from_slice(pk.as_ref());
-        let A = match A.decompress() {
-            Some(point) => point,
-            None => return Err(SignatureError::PointDecompression.into()),
-        };
+        let A = CompressedEdwardsY::from_slice(pk.as_ref())
+            .map_err(|_| SignatureError::PointDecompression)?;
+        let A = A.decompress().ok_or(SignatureError::PointDecompression)?;
         if A.is_small_order() {
             return Err(SignatureError::SmallOrderA.into());
         }
@@ -144,11 +142,9 @@ impl Signature {
         let R_bits = &sig_slice[..32];
         let S_bits = &sig_slice[32..];
 
-        let R = CompressedEdwardsY::from_slice(R_bits);
-        let R = match R.decompress() {
-            Some(point) => point,
-            None => return Err(SignatureError::PointDecompression.into()),
-        };
+        let R = CompressedEdwardsY::from_slice(R_bits)
+        .map_err(|_| SignatureError::PointDecompression)?;
+        let R = R.decompress().ok_or(SignatureError::PointDecompression)?;
         if R.is_small_order() {
             return Err(SignatureError::SmallOrderR.into());
         }
@@ -158,6 +154,7 @@ impl Signature {
         }
         let mut S: [u8; 32] = [0u8; 32];
         S.copy_from_slice(S_bits);
+        #[allow(deprecated)] // S is only used for vartime_double_scalar_mul_basepoint.
         let S = Scalar::from_bits(S);
 
         // k = H(R,A,m)
