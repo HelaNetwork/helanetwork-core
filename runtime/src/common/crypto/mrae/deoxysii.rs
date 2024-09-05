@@ -1,17 +1,17 @@
 //! Deoxys-II-256-128 MRAE primitives implementation.
 
-pub use super::deoxysii_rust::{DeoxysII, KEY_SIZE, NONCE_SIZE, TAG_SIZE};
+pub use deoxysii::{DeoxysII, KEY_SIZE, NONCE_SIZE, TAG_SIZE};
+use hmac::{Hmac, Mac};
+use sha2::Sha512_256;
 
 use super::{
-    hmac::{Hmac, Mac, NewMac},
-    sha2::Sha512Trunc256,
     x25519_dalek,
 };
 
 use anyhow::Result;
 use rand::rngs::OsRng;
 
-type Kdf = Hmac<Sha512Trunc256>;
+type Kdf = Hmac<Sha512_256>;
 
 /// Derives a MRAE AEAD symmetric key suitable for use with the asymmetric
 /// box primitives from the provided X25519 public and private keys.
