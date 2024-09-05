@@ -9,7 +9,6 @@ use curve25519_dalek::{
 };
 use ed25519_dalek::{self, Digest as _, Sha512, Signer as _};
 use rand::rngs::OsRng;
-use sha2::{Digest as _, Sha512};
 use thiserror::Error;
 use zeroize::Zeroize;
 
