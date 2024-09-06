@@ -51,11 +51,7 @@ use crate::{
     types::{Body, EventKind, HostFetchConsensusEventsRequest, HostFetchConsensusEventsResponse},
 };
 
-use self::{
-    cache::Cache,
-    handle::Handle,
-    store::{TrustedState, TrustedStateStore},
-};
+use self::{cache::Cache, handle::Handle, store::TrustedStateStore};
 
 // Modules.
 mod cache;
@@ -704,10 +700,10 @@ impl Verifier {
             options,
             Box::new(LruStore::new(512, trust_root.height.try_into().unwrap())),
             io,
-            Box::new(ProdHasher),
             clock,
             verifier,
             Box::new(components::scheduler::basic_bisecting_schedule),
+            Box::new(ProdPredicates),
         );
 
         let mut instance = builder
