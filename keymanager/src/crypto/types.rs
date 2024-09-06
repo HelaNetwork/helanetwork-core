@@ -51,10 +51,12 @@ pub struct KeyPair {
 impl KeyPair {
     /// Generate a new random key (for testing).
     pub fn generate_mock() -> Self {
+        
         let sk = x25519_dalek::StaticSecret::random_from_rng(OsRng);
         let pk = x25519_dalek::PublicKey::from(&sk);
 
         let mut state_key = StateKey::default();
+        let mut rng = OsRng {};
         rng.fill(&mut state_key.0);
 
         KeyPair::new(
