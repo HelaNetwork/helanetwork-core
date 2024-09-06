@@ -44,7 +44,7 @@ use crate::{
             LightBlockMeta,
         },
         transaction::{Transaction, SIGNATURE_CONTEXT},
-        verifier::{self, verify_state_freshness, Error, TrustRoot},
+        verifier::{self, verify_state_freshness, Error, TrustRoot, TrustedState},
         Event, LightBlock, HEIGHT_LATEST,
     },
     protocol::Protocol,
