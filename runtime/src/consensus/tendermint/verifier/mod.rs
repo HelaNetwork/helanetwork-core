@@ -12,7 +12,7 @@ use tendermint_light_client::{
     builder::LightClientBuilder,
     components::{self, io::AtHeight, verifier::PredicateVerifier},
     light_client,
-    operations::{ProdCommitValidator, ProdHasher},
+    operations::{ProdCommitValidator, ProvidedVotingPowerCalculator},
     supervisor::Instance,
     types::{
         Hash as TMHash, LightBlock as TMLightBlock, PeerId, Time, TrustThreshold, TrustedBlockState,
@@ -61,7 +61,7 @@ mod io;
 mod noop;
 mod store;
 mod types;
-mod voting;
+mod signature;
 
 // Re-exports.
 pub use noop::NopVerifier;
@@ -675,9 +675,8 @@ impl Verifier {
         let clock = Box::new(InsecureClock);
         let verifier = Box::new(PredicateVerifier::new(
             ProdPredicates::default(),
-            DomSepVotingPowerCalculator,
+            ProvidedVotingPowerCalculator::<signature::DomSepVerifier>::default(),
             ProdCommitValidator::default(),
-            ProdHasher::default(),
         ));
         let io = Box::new(Io::new(&self.protocol));
 
@@ -705,7 +704,6 @@ impl Verifier {
             clock,
             verifier,
             Box::new(components::scheduler::basic_bisecting_schedule),
-            Box::new(ProdPredicates),
         );
 
         let mut instance = builder
