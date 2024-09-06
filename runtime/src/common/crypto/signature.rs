@@ -65,7 +65,7 @@ impl PrivateKey {
     /// # Panics
     ///
     /// This method will panic in case the passed bytes do not have the correct length.
-    pub fn from_bytes(mut bytes: Vec<u8>) -> PrivateKey {
+    pub fn from_bytes(bytes: Vec<u8>) -> PrivateKey {
         let mut sk = bytes.try_into().unwrap();
         let secret = ed25519_dalek::SigningKey::from_bytes(&sk);
         sk.zeroize();

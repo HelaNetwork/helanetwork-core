@@ -35,9 +35,8 @@ fn derive_symmetric_key(public: &[u8; 32], private: &[u8; 32]) -> [u8; KEY_SIZE]
 /// Generates a public/private key pair suitable for use with
 /// `derive_symmetric_key`, `box_seal`, and `box_open`.
 pub fn generate_key_pair() -> ([u8; 32], [u8; 32]) {
-    let mut rng = OsRng {};
 
-    let sk = x25519_dalek::StaticSecret::new(&mut rng);
+    let sk = x25519_dalek::StaticSecret::random_from_rng(OsRng);
     let pk = x25519_dalek::PublicKey::from(&sk);
 
     (*pk.as_bytes(), sk.to_bytes())
