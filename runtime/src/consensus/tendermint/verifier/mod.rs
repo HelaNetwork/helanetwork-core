@@ -15,7 +15,8 @@ use tendermint_light_client::{
     operations::{ProdCommitValidator, ProvidedVotingPowerCalculator},
     supervisor::Instance,
     types::{
-        Hash as TMHash, LightBlock as TMLightBlock, PeerId, Time, TrustThreshold, TrustedBlockState,
+        Hash as TMHash, LightBlock as TMLightBlock, PeerId, Status, Time, TrustThreshold,
+        TrustedBlockState,
     },
     verifier::{predicates::ProdPredicates, Verdict, Verifier as TMVerifier},
 };
@@ -39,19 +40,22 @@ use crate::{
                 io::Io,
                 store::LruStore,
                 types::{Command, Nonce, NONCE_SIZE},
-                voting::DomSepVotingPowerCalculator,
             },
             LightBlockMeta,
         },
         transaction::{Transaction, SIGNATURE_CONTEXT},
-        verifier::{self, verify_state_freshness, Error, TrustRoot, TrustedState},
+        verifier::{self, verify_state_freshness, Error, TrustRoot},
         Event, LightBlock, HEIGHT_LATEST,
     },
     protocol::Protocol,
     types::{Body, EventKind, HostFetchConsensusEventsRequest, HostFetchConsensusEventsResponse},
 };
 
-use self::{cache::Cache, handle::Handle, store::TrustedStateStore};
+use self::{
+    cache::Cache,
+    handle::Handle,
+    store::{TrustedState, TrustedStateStore},
+};
 
 // Modules.
 mod cache;
@@ -688,12 +692,20 @@ impl Verifier {
         // Verify if we can trust light blocks from a new chain if the consensus
         // chain context changes.
         info!(self.logger, "Checking chain context change");
-        let trust_root = self.handle_chain_context_change(
+        let trusted_state = self.handle_chain_context_change(
             trusted_state,
             verifier.as_ref(),
             clock.as_ref(),
             io.as_ref(),
         )?;
+
+        // Insert all of the trusted blocks into the light store as trusted.
+        let mut store = Box::new(LruStore::new(1024));
+        for lb in trusted_state.trusted_blocks {
+            store.insert(lb.into(), Status::Trusted);
+        }
+        let trust_root = trusted_state.trust_root;
+
 
         let builder = LightClientBuilder::custom(
             peer_id,
