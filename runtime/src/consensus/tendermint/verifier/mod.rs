@@ -692,20 +692,12 @@ impl Verifier {
         // Verify if we can trust light blocks from a new chain if the consensus
         // chain context changes.
         info!(self.logger, "Checking chain context change");
-        let trusted_state = self.handle_chain_context_change(
+        let trust_root = self.handle_chain_context_change(
             trusted_state,
             verifier.as_ref(),
             clock.as_ref(),
             io.as_ref(),
         )?;
-
-        // Insert all of the trusted blocks into the light store as trusted.
-        let mut store = Box::new(LruStore::new(1024));
-        for lb in trusted_state.trusted_blocks {
-            store.insert(lb.into(), Status::Trusted);
-        }
-        let trust_root = trusted_state.trust_root;
-
 
         let builder = LightClientBuilder::custom(
             peer_id,
