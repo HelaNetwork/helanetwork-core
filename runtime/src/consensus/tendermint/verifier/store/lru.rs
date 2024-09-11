@@ -112,6 +112,16 @@ impl LightStore for LruStore {
             .map(|(_, e)| e.light_block.clone())
     }
 
+    fn highest_before(&self, height: Height, status: Status) -> Option<LightBlock> {
+        self.inner()
+            .blocks
+            .iter()
+            .filter(|(_, e)| e.status == status)
+            .filter(|(h, _)| h <= &&height)
+            .max_by_key(|(&height, _)| height)
+            .map(|(_, e)| e.light_block.clone())
+    }
+
     fn lowest(&self, status: Status) -> Option<LightBlock> {
         self.inner()
             .blocks
