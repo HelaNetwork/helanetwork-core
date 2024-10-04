@@ -12,10 +12,11 @@ use tendermint_light_client::{
     builder::LightClientBuilder,
     components::{self, io::AtHeight, verifier::PredicateVerifier},
     light_client,
-    operations::{ProdCommitValidator, ProdHasher},
+    operations::{ProdCommitValidator, ProvidedVotingPowerCalculator},
     supervisor::Instance,
     types::{
-        Hash as TMHash, LightBlock as TMLightBlock, PeerId, Time, TrustThreshold, TrustedBlockState,
+        Hash as TMHash, LightBlock as TMLightBlock, PeerId, Status, Time, TrustThreshold,
+        TrustedBlockState,
     },
     verifier::{predicates::ProdPredicates, Verdict, Verifier as TMVerifier},
 };
@@ -33,13 +34,12 @@ use crate::{
             ConsensusState,
         },
         tendermint::{
-            decode_light_block, state_root_from_header,
+            chain_id, decode_light_block, state_root_from_header,
             verifier::{
                 clock::InsecureClock,
                 io::Io,
                 store::LruStore,
                 types::{Command, Nonce, NONCE_SIZE},
-                voting::DomSepVotingPowerCalculator,
             },
             LightBlockMeta,
         },
@@ -61,7 +61,7 @@ mod io;
 mod noop;
 mod store;
 mod types;
-mod voting;
+mod signature;
 
 // Re-exports.
 pub use noop::NopVerifier;
@@ -309,7 +309,7 @@ impl Verifier {
         }
 
         // Compute hash of the transaction and verify the proof.
-        let digest = Sha256::digest(&cbor::to_vec(signed_tx));
+        let digest = Sha256::digest(cbor::to_vec(signed_tx));
         let mut tx_hash = [0u8; HASH_SIZE];
         tx_hash.copy_from_slice(&digest);
 
@@ -675,9 +675,8 @@ impl Verifier {
         let clock = Box::new(InsecureClock);
         let verifier = Box::new(PredicateVerifier::new(
             ProdPredicates::default(),
-            DomSepVotingPowerCalculator,
+            ProvidedVotingPowerCalculator::<signature::DomSepVerifier>::default(),
             ProdCommitValidator::default(),
-            ProdHasher::default(),
         ));
         let io = Box::new(Io::new(&self.protocol));
 
@@ -701,7 +700,6 @@ impl Verifier {
             options,
             Box::new(LruStore::new(512, trust_root.height.try_into().unwrap())),
             io,
-            Box::new(ProdHasher),
             clock,
             verifier,
             Box::new(components::scheduler::basic_bisecting_schedule),
@@ -884,6 +882,8 @@ impl Verifier {
             height,
             next_validators: &lbm.validators,
             next_validators_hash: header.validators_hash,
+            // We need to use the target chain ID as we know it has changed.
+            chain_id: &chain_id(&host_info.consensus_chain_context),
         };
 
         // Verify the new block using +2/3 trust threshold rule.

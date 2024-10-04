@@ -1,17 +1,17 @@
 //! Deoxys-II-256-128 MRAE primitives implementation.
 
-pub use super::deoxysii_rust::{DeoxysII, KEY_SIZE, NONCE_SIZE, TAG_SIZE};
+pub use deoxysii::{DeoxysII, KEY_SIZE, NONCE_SIZE, TAG_SIZE};
+use hmac::{Hmac, Mac};
+use sha2::Sha512_256;
 
 use super::{
-    hmac::{Hmac, Mac, NewMac},
-    sha2::Sha512Trunc256,
     x25519_dalek,
 };
 
 use anyhow::Result;
 use rand::rngs::OsRng;
 
-type Kdf = Hmac<Sha512Trunc256>;
+type Kdf = Hmac<Sha512_256>;
 
 /// Derives a MRAE AEAD symmetric key suitable for use with the asymmetric
 /// box primitives from the provided X25519 public and private keys.
@@ -35,9 +35,8 @@ fn derive_symmetric_key(public: &[u8; 32], private: &[u8; 32]) -> [u8; KEY_SIZE]
 /// Generates a public/private key pair suitable for use with
 /// `derive_symmetric_key`, `box_seal`, and `box_open`.
 pub fn generate_key_pair() -> ([u8; 32], [u8; 32]) {
-    let mut rng = OsRng {};
 
-    let sk = x25519_dalek::StaticSecret::new(&mut rng);
+    let sk = x25519_dalek::StaticSecret::random_from_rng(OsRng);
     let pk = x25519_dalek::PublicKey::from(&sk);
 
     (*pk.as_bytes(), sk.to_bytes())
